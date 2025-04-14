@@ -29,8 +29,29 @@ function getBasicInformation () {
     Write-Output "--> Total (gb): $totalSpace. [] Used/Free (gb): $usedSpace/$freeSpace. [] Used/Free (%): $percUsed/$percFree."
 }
 
-function listLargeFilesInFolders ($inDir) {
-    Write-Output "not yet"
+function listLargeFilesInFolders ($path, $fileCount) {
+    Write-Output "-> Largest files in $path (top $fileCount):"
+    $x = (Get-ChildItem -Path $path -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length | Select-Object -Last $fileCount)
+    foreach ($i in $x) {
+        $size = numRound ($i.Length / 1gb)
+        Write-Output "--> $size gb: $($i.FullName)"
+    }
+}
+
+function getVolumeRootStats () {
+    listLargeFilesInFolders "C:\" 12
+}
+
+function getUserFolderStats () {
+    Write-Output "-> Last used desktop:"
+    $x = (Get-ChildItem -Path "C:\Users\" -Recurse -Force -ErrorAction SilentlyContinue | Where-Object {$_.Name -eq "desktop.ini"})
+    foreach ($i in $x) {
+        if ($i.FullName.Split("\")[-2] -eq "Desktop") {
+            $userFolder = $i.FullName.Split("\")[-3]
+            Write-Output "--> $userFolder`: $($i.LastAccessTime)"
+        }
+    }
+    listLargeFilesInFolders "C:\Users\" 12
 }
 
 function newSection ($sectionTxt) {
@@ -41,7 +62,9 @@ Write-Output "=============="
 Write-Output "DISK SMASHER"
 newSection "BASIC INFORMATION"
 getBasicInformation
-# getVolumeRootStats
-# getUserFolderStats
+newSection "STATS - ROOT OF VOLUME"
+getVolumeRootStats
+newSection "STATS - USER FOLDER"
+getUserFolderStats
 # checkNoteableLargeFolders
 # checkForRemediation
