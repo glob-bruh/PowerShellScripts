@@ -29,6 +29,20 @@ function getBasicInformation () {
     Write-Output "--> Total (gb): $totalSpace. [] Used/Free (gb): $usedSpace/$freeSpace. [] Used/Free (%): $percUsed/$percFree."
 }
 
+function getSizeOfFolderContents ($path) {
+    Write-Output "-> Retrieve total size of $path`:"
+    $i = 0
+    if ((Test-Path -Path $path) -eq $true) {
+        foreach ($x in (Get-ChildItem -Path $path -Recurse -File -ErrorAction SilentlyContinue)) {
+            $i += $x.Length
+        }
+        $out = numRound ($i / 1gb)
+    } else {
+        $out = "N/a"
+    }
+    Write-Output "--> Total size of accessible files: $out gb."
+}
+
 function listLargeFilesInFolders ($path, $fileCount) {
     Write-Output "-> Largest files in $path (top $fileCount):"
     $x = (Get-ChildItem -Path $path -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length | Select-Object -Last $fileCount)
@@ -54,6 +68,11 @@ function getUserFolderStats () {
     listLargeFilesInFolders "C:\Users\" 12
 }
 
+function checkNoteableLargeFolders () {
+    getSizeOfFolderContents "C:\Windows\CSC\"
+    getSizeOfFolderContents "C:\Windows\SoftwareDistribution\Download\"
+}
+
 function newSection ($sectionTxt) {
     Write-Output "==============", ($sectionTxt + ":")
 }
@@ -66,5 +85,6 @@ newSection "STATS - ROOT OF VOLUME"
 getVolumeRootStats
 newSection "STATS - USER FOLDER"
 getUserFolderStats
-# checkNoteableLargeFolders
+newSection "NOTABLE LARGE FOLDERS"
+checkNoteableLargeFolders
 # checkForRemediation
