@@ -3,22 +3,40 @@
     ----------------
     AUDIT DEEP SCAN:
     ----------------
+    *** CREATED BY: GlobBruh (https://tech.beyondgone.xyz) ***
     Scans audit log entries and enriches them with information from external API and conversions.
 
     .DESCRIPTION
-    This PowerShell script processes audit log entries from a specified CSV file, extracts IP addresses, and queries an external API to retrieve detailed information about those IPs. It enriches the audit log entries with this information and provides options to filter the output based on specific criteria such as mobile, proxy, or hosting IP addresses.
+    This PowerShell script processes audit log entries from a specified CSV file, extracts IP addresses, and queries an external API to retrieve detailed information about those IPs.
+    It enriches the audit log entries with this information and provides options to filter based on multiple criteria such as IP type, UserID, and Operation type.
+    The script respects API rate limits by batching requests and includes verbose logging for transparency.
 
-    .PARAMETER filterType
+    DEFAULT BEHAVIOR:
+    If no filters are applied, the script will output all audit log entries with enriched information.
+
+    .PARAMETER file2Scan
+    The path to the CSV Purview audit export containing the audit log entries to be scanned.
+    Accepts a string value representing the file path.
+    This parameter is required.
+
+    .PARAMETER IPAddressSearch
+    Optional parameter to filter audit log entries by IP Address.
+    Uses wildcard matching to find entries that contain the specified string.
+
+    .PARAMETER filterIPType
     Specifies the type of filter to apply to the audit log entries.
     Accepted values are:
     - "mobile": Outputs only entries from mobile IP addresses.
     - "proxy": Outputs only entries from proxy/VPN IP addresses.
     - "hosting": Outputs only entries from hosting provider IP addresses.
-    If no filterType is provided, all audit log entries are output.
 
-    .PARAMETER file2Scan
-    The path to the CSV Purview audit export containing the audit log entries to be scanned.
-    Accepts a string value representing the file path.
+    .PARAMETER UserIDSearch
+    Optional parameter to filter audit log entries by UserID (such as email or username).
+    Uses wildcard matching to find entries that contain the specified string.
+
+    .PARAMETER OperationSearch
+    Optional parameter to filter audit log entries by Operation type (such as Set-Mailbox or AccessedAggregates).
+    Uses wildcard matching to find entries that contain the specified string.
 
     .INPUTS
     None. This script does not accept input from the pipeline.
@@ -27,16 +45,21 @@
     Outputs the audit log entries with enriched information.
 
     .EXAMPLE
-    PS> AuditDeepscan.ps1 -file2Scan "C:\path\to\auditlog.csv"
+    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv
     Scans the audit log entries and outputs all entries.
 
     .EXAMPLE
-    PS> AuditDeepscan.ps1 -file2Scan "C:\path\to\auditlog.csv" -filterType "mobile"
-    Scans the audit log entries and outputs only those from mobile IP addresses.
+    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -filterType proxy
+    Scans the audit log entries and outputs only those from proxy/VPN IP addresses.
 
     .EXAMPLE
-    PS> auditdeepscan.ps1 -file2Scan "C:\path\to\auditlog.csv" -filterType "proxy"
-    Scans the audit log entries and outputs only those from proxy/VPN IP addresses.
+    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -filterIPType hosting -UserIDSearch john.doe -OperationSearch create
+    Scans the audit log entries and outputs only those from hosting provider IP addresses, where the UserID contains "john.doe" and the Operation contains "create".
+
+    .EXAMPLE
+    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -OperationSearch UserLoggedIn -IPAddressSearch 1.2.3.4 -filterIPType proxy -UserIDSearch john.doe -Verbose
+    Scans the specified audit log file for entries where the Operation contains "UserLoggedIn", the IP Address is "1.2.3.4", the IP type is proxy, and the UserID contains "john.doe", with verbose output enabled.
+    This example demonstrates the use of multiple filters to narrow down the results, which is particularly useful for targeted investigations.
 
     .LINK
     GitHub: https://github.com/glob-bruh/PowerShellScripts/tree/main/AuditDeepscan
@@ -44,14 +67,22 @@
 #>
 
 [CmdletBinding()]
-param($file2Scan, $filterType)
+param(
+    [Parameter(Mandatory=$true)]
+        [string]$file2Scan,
+    [Parameter(Mandatory=$false)]
+        [string]$filterIPType, 
+        [string]$UserIDSearch, 
+        [string]$OperationSearch,
+        [string]$IPAddressSearch
+)
 
 # ----------------
 # CONFIGURATION
 # ----------------
-$apiURL = "http://ip-api.com"
-$apiPath = "/batch"
-$apiParams = "?fields=17035263"
+$apiURL = "http://ip-api.com/batch?fields=17035263"
+$APIwaitTimeSeconds = 15
+$APImaxIP = 97
 # ----------------
 
 function convertToBoolean($inStr) {
@@ -72,24 +103,34 @@ function ipAddressParse($inStr) {
 }
 
 function ipLookup($request) {
-    $response = Invoke-WebRequest -Uri $($apiURL + $apiPath + $apiParams) -Method POST -Body $request -UseBasicParsing 
+    Write-Verbose "------------- IP LOOKUP ----------------"
+    Write-Verbose "Performing IP lookup via external API..."
+    write-Verbose "API Request Body: $request"
+    $response = Invoke-WebRequest -Uri $apiURL -Method POST -Body $request -UseBasicParsing 
     $output = ConvertFrom-Json $response.Content
+    Write-Verbose "----------------------------------------"
     return $output  
 }
 
-function outputEntry($auditData, $time, $userAgent, $clientIP, $clientIPcountry, $clientIPregion, $clientIPcity, $clientIPisp, $clientIPorg, $clientIPas, $clientIPismobile, $clientIPisproxy, $clienIPishosting) {
-    Write-Output "$($auditData.UserID) --> $($auditData.Operation)"
+function outputEntry($resultData) {
+    Write-Output "$($resultData.AuditData.UserID) --> $($resultData.AuditData.Operation)"
+    if ($null -ne $resultData.AuditData.UserAgent) {
+        Write-Output "|- User Agent: $($resultData.AuditData.UserAgent)."
+    }
     Write-Output "|- Time: $($time)."
-    Write-Output "|- User Agent: $($userAgent)."
-    Write-Output "|- IP Address: $($clientIP)."
-    Write-Output "|--- Location: $($clientIPcity), $($clientIPregion), $($clientIPcountry)."
-    Write-Output "|--- ISP: $($clientIPisp)."
-    Write-Output "|----- Organization: $($clientIPorg)."
-    Write-Output "|----- AS: $($clientIPas)."
+    Write-Output "|- IP Address: $($resultData.ClientIPinfo.IP)."
+    Write-Output "|--- Location: $($resultData.ClientIPinfo.City), $($resultData.ClientIPinfo.Region), $($resultData.ClientIPinfo.Country)."
+    Write-Output "|--- ISP: $($resultData.ClientIPinfo.ISP)."
+    Write-Output "|----- Organization: $($resultData.ClientIPinfo.Org)."
+    Write-Output "|----- AS: $($resultData.ClientIPinfo.AS)."
     Write-Output "|--- Special Properties:"
-    Write-Output "|----- Is mobile: $($clientIPismobile)."
-    Write-Output "|----- Is proxy: $($clientIPisproxy)."
-    Write-Output "|----- Is hosting: $($clienIPishosting)."
+    Write-Output "|----- Is mobile: $($resultData.ClientIPinfo.IsMobile)."
+    Write-Output "|----- Is proxy: $($resultData.ClientIPinfo.IsProxy)."
+    Write-Output "|----- Is hosting: $($resultData.ClientIPinfo.IsHosting)."
+}
+
+function outputLogic($resultData) {
+    Write-Output $resultData
 }
 
 Write-Output "========================"
@@ -112,28 +153,30 @@ foreach ($i in $reportData) {
 }
 
 $IPArray = $IPArray | Select-Object -Unique
-$requestBody = '[{"query":"0.0.0.0", "lang":"en"}'
-# NOTE: API CAN ONLY HANDLE UP TO 100 IP'S IN BATCH REQUEST. 
-foreach ($i in $IPArray) {
-    $requestBody += ",`"$($i)`""
+$chunks = @()
+$IPLookups = @()
+for ($i = 0; $i -lt $IPArray.Count; $i += $APImaxIP) { 
+        $high = $i + $APImaxIP - 1
+        $low = $i
+        $chunk = $IPArray[$high..$low]
+        $chunks += ,$chunk
 }
-$requestBody += "]"
-#if ($IPArray -gt 100) {
-#    Write-Output "WARNING: IP Address count exceeds 100. Truncating to first 100 entries."
-#    $requestBody = $requestBody[0..99]
-#}
-if ($IPArray.Length -gt 95) {
-    Write-Warning "WARNING: IP Address count is $($IPArray.Length). API may not process more than 100 entries in a single batch request. Proceed?"
-    $userInput = Read-Host "Type 'Y' to proceed, or any other key to abort"
-    if ($userInput -ne "Y") {
-        Write-Output "Aborting operation."
-        exit
-    } elseif ($userInput -eq "Y") {
-        Write-Verbose "Proceeding with IP lookup."
-        $ipLookupResults = ipLookup $requestBody
+if ($chunks.Count -gt 1) {
+    $howLong = ($chunks.Count - 1) * $APIwaitTimeSeconds
+    Write-Warning "Over 100 unique IP's detected. Pausing between API requests to respect rate limits."
+    Write-Warning "Estimated total wait time: $howLong seconds."
+}
+foreach ($x in $chunks) {
+    $requestBody = '[{"query":"0.0.0.0", "lang":"en"}'
+    foreach ($y in $x) {
+        $requestBody += ",`"$($y)`""
     }
-} else {
-    $ipLookupResults = ipLookup $requestBody
+    $requestBody += "]"
+    $IPLookups += ipLookup $requestBody
+    if ($chunks.Count -gt 1) {
+        Write-Verbose "Pausing for 15 second to respect API rate limits..."
+        Start-Sleep -Seconds $APIwaitTimeSeconds
+    }
 }
 
 foreach ($i in $reportData) {
@@ -143,38 +186,47 @@ foreach ($i in $reportData) {
     } elseif ($null -ne $auditData.ActorIpAddress) {
         $clientIP = ipAddressParse $auditData.ActorIpAddress
     }
-    foreach ($x in $ipLookupResults) {
+    foreach ($x in $IPLookups) {
         if ($x.query -eq $clientIP) {
-            $clientIPcountry = $x.country
-            $clientIPregion = $x.regionName
-            $clientIPcity = $x.city
-            $clientIPisp = $x.isp
-            $clientIPorg = $x.org
-            $clientIPas = $x.as
-            $clientIPismobile = convertToBoolean $x.mobile
-            $clientIPisproxy = convertToBoolean $x.proxy
-            $clienIPishosting = convertToBoolean $x.hosting
+            $clientIPinfo = [PSCustomObject]@{
+                "IP"        = $x.query
+                "Country"   = $x.country
+                "Region"    = $x.regionName
+                "City"      = $x.city
+                "ISP"       = $x.isp
+                "Org"       = $x.org
+                "AS"        = $x.as
+                "IsMobile"  = convertToBoolean $x.mobile
+                "IsProxy"   = convertToBoolean $x.proxy
+                "IsHosting" = convertToBoolean $x.hosting
+            }
         }
     }
     $time = ([datetime]$auditData.CreationTime).ToString("MMMM dd, yyyy hh:mm:ss tt")
-    if ($null -ne $auditData.UserAgent) {
-        $userAgent = $auditData.UserAgent
-    } else {
-        $userAgent = "N/A"
+    $resultData = [PSCustomObject]@{
+        "AuditData"    = $auditData
+        "Time"         = $time
+        "ClientIPinfo" = $clientIPinfo
     }
-    if ($filterType -eq "mobile") {
-        if ($clientIPismobile -eq $true) {
-            outputEntry $auditData $time $userAgent $clientIP $clientIPcountry $clientIPregion $clientIPcity $clientIPisp $clientIPorg $clientIPas $clientIPismobile $clientIPisproxy $clienIPishosting
+    $showThisEntry = $true
+    if ($PSBoundParameters.ContainsKey("filterIPType")) {
+        switch ($filterIPType) {
+            "mobile" { if ($clientIPinfo.IsMobile -ne $filterIPType) { $showThisEntry = $false ; continue } }
+            "proxy" { if ($clientIPinfo.IsProxy -ne $filterIPType) { $showThisEntry = $false ; continue } }
+            "hosting" { if ($clientIPinfo.IsHosting -ne $filterIPType) { $showThisEntry = $false ; continue }
+            }
         }
-    } elseif ($filterType -eq "proxy") {
-        if ($clientIPisproxy -eq $true) {
-            outputEntry $auditData $time $userAgent $clientIP $clientIPcountry $clientIPregion $clientIPcity $clientIPisp $clientIPorg $clientIPas $clientIPismobile $clientIPisproxy $clienIPishosting
-        }
-    } elseif ($filterType -eq "hosting") {
-        if ($clienIPishosting -eq $true) {
-            outputEntry $auditData $time $userAgent $clientIP $clientIPcountry $clientIPregion $clientIPcity $clientIPisp $clientIPorg $clientIPas $clientIPismobile $clientIPisproxy $clienIPishosting
-        }
-    } else {
-        outputEntry $auditData $time $userAgent $clientIP $clientIPcountry $clientIPregion $clientIPcity $clientIPisp $clientIPorg $clientIPas $clientIPismobile $clientIPisproxy $clienIPishosting
     }
+    if ($PSBoundParameters.ContainsKey("UserIDSearch")) {
+        if ($auditData.UserID -notlike "*$UserIDSearch*") { $showThisEntry = $false ; continue }
+    }
+    if ($PSBoundParameters.ContainsKey("OperationSearch")) {
+        if ($auditData.Operation -notlike  "*$OperationSearch*") { $showThisEntry = $false ; continue }
+    }
+    if ($PSBoundParameters.ContainsKey("IPAddressSearch")) {
+        if ($clientIPinfo.IP -notlike "*$IPAddressSearch*") { $showThisEntry = $false ; continue }
+    }
+    if ($showThisEntry -eq $true) {
+        outputEntry $resultData
+    } 
 }
