@@ -23,6 +23,14 @@
     Optional parameter to filter audit log entries by IP Address.
     Uses wildcard matching to find entries that contain the specified string.
 
+    .PARAMETER IPdatasetOut
+    Optional parameter to specify a file path to save the IP lookup data in JSON format.
+    This is useful for caching the IP data to avoid redundant API calls in future scans.
+
+    .PARAMETER IPdatasetIn
+    Optional parameter to specify a file path to load existing IP lookup data in JSON format.
+    This allows the script to bypass API calls and use previously retrieved data, avoiding the need to query the external API repetitively.
+
     .PARAMETER filterIPType
     Specifies the type of filter to apply to the audit log entries.
     Accepted values are:
@@ -47,6 +55,13 @@
     .EXAMPLE
     PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv
     Scans the audit log entries and outputs all entries.
+    This is the default behavior when no filters are applied.
+    NOTE: This may result in a large volume of output depending on the size of the audit log.
+
+    .EXAMPLE 
+    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -IPdatasetOut C:\path\to\ipdataset.json
+    Scans the audit log entries and outputs all entries, while also saving the IP lookup data to the specified JSON file for future use. 
+    This is useful for avoiding redundant API calls in subsequent searches.
 
     .EXAMPLE
     PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -filterType proxy
@@ -57,8 +72,13 @@
     Scans the audit log entries and outputs only those from hosting provider IP addresses, where the UserID contains "john.doe" and the Operation contains "create".
 
     .EXAMPLE
-    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -OperationSearch UserLoggedIn -IPAddressSearch 1.2.3.4 -filterIPType proxy -UserIDSearch john.doe -Verbose
-    Scans the specified audit log file for entries where the Operation contains "UserLoggedIn", the IP Address is "1.2.3.4", the IP type is proxy, and the UserID contains "john.doe", with verbose output enabled.
+    PS> AuditDeepscan.ps1 -file2Scan C:\path\to\auditlog.csv -OperationSearch UserLoggedIn -IPAddressSearch 1.2.3.4 -filterIPType proxy -UserIDSearch john.doe -IPdatasetOut C:\path\to\ipdataset.json -IPdatasetIn C:\path\to\ipdataset.json
+    Scans the audit log entries and applies multiple filters:
+    - Outputs only entries where the Operation contains "UserLoggedIn".
+    - Outputs only entries where the IP Address contains "1.2.3.4".
+    - Outputs only entries from proxy/VPN IP addresses.
+    - Outputs only entries where the UserID contains "john.doe".
+    - Uses existing IP lookup data from the specified JSON file to avoid API calls.
     This example demonstrates the use of multiple filters to narrow down the results, which is particularly useful for targeted investigations.
 
     .LINK
@@ -74,7 +94,9 @@ param(
         [string]$filterIPType, 
         [string]$UserIDSearch, 
         [string]$OperationSearch,
-        [string]$IPAddressSearch
+        [string]$IPAddressSearch,
+        [string]$IPdatasetOut,
+        [string]$IPdatasetIn
 )
 
 # ----------------
@@ -117,20 +139,20 @@ function outputEntry($resultData) {
     if ($null -ne $resultData.AuditData.UserAgent) {
         Write-Output "|- User Agent: $($resultData.AuditData.UserAgent)."
     }
-    Write-Output "|- Time: $($time)."
-    Write-Output "|- IP Address: $($resultData.ClientIPinfo.IP)."
-    Write-Output "|--- Location: $($resultData.ClientIPinfo.City), $($resultData.ClientIPinfo.Region), $($resultData.ClientIPinfo.Country)."
-    Write-Output "|--- ISP: $($resultData.ClientIPinfo.ISP)."
-    Write-Output "|----- Organization: $($resultData.ClientIPinfo.Org)."
-    Write-Output "|----- AS: $($resultData.ClientIPinfo.AS)."
-    Write-Output "|--- Special Properties:"
-    Write-Output "|----- Is mobile: $($resultData.ClientIPinfo.IsMobile)."
-    Write-Output "|----- Is proxy: $($resultData.ClientIPinfo.IsProxy)."
-    Write-Output "|----- Is hosting: $($resultData.ClientIPinfo.IsHosting)."
-}
-
-function outputLogic($resultData) {
-    Write-Output $resultData
+    Write-Output "|- Time: $($resultData.Time)."
+    if ($null -ne $resultData.ClientIPinfo.IP) {
+        Write-Output "|- IP Address: $($resultData.ClientIPinfo.IP)."
+        Write-Output "|--- Location: $($resultData.ClientIPinfo.City), $($resultData.ClientIPinfo.Region), $($resultData.ClientIPinfo.Country)."
+        Write-Output "|--- ISP: $($resultData.ClientIPinfo.ISP)."
+        Write-Output "|----- Organization: $($resultData.ClientIPinfo.Org)."
+        Write-Output "|----- AS: $($resultData.ClientIPinfo.AS)."
+        Write-Output "|--- Special Properties:"
+        Write-Output "|----- Is mobile: $($resultData.ClientIPinfo.IsMobile)."
+        Write-Output "|----- Is proxy: $($resultData.ClientIPinfo.IsProxy)."
+        Write-Output "|----- Is hosting: $($resultData.ClientIPinfo.IsHosting)."
+    } else {
+        Write-Output "|- IP Address: N/A"
+    }
 }
 
 Write-Output "========================"
@@ -139,8 +161,7 @@ Write-Output "GlobBruh - tech.beyondgone.xyz"
 Write-Output "========================"
 
 $IPArray = @()
-$reportData = Import-Csv -LiteralPath $file2Scan
-
+$reportData = Import-Csv -LiteralPath $file2Scan | Sort-Object -Property CreationDate
 foreach ($i in $reportData) {
     $auditData = ConvertFrom-Json $i.AuditData
     if ($null -ne $auditData.ClientIP) {
@@ -155,29 +176,41 @@ foreach ($i in $reportData) {
 $IPArray = $IPArray | Select-Object -Unique
 $chunks = @()
 $IPLookups = @()
-for ($i = 0; $i -lt $IPArray.Count; $i += $APImaxIP) { 
-        $high = $i + $APImaxIP - 1
-        $low = $i
-        $chunk = $IPArray[$high..$low]
-        $chunks += ,$chunk
-}
-if ($chunks.Count -gt 1) {
-    $howLong = ($chunks.Count - 1) * $APIwaitTimeSeconds
-    Write-Warning "Over 100 unique IP's detected. Pausing between API requests to respect rate limits."
-    Write-Warning "Estimated total wait time: $howLong seconds."
-}
-foreach ($x in $chunks) {
-    $requestBody = '[{"query":"0.0.0.0", "lang":"en"}'
-    foreach ($y in $x) {
-        $requestBody += ",`"$($y)`""
+if ($PSBoundParameters.ContainsKey("IPdatasetIn") -and (Test-Path -Path $IPdatasetIn)) {
+    Write-Verbose "Skipping API lookups and using existing dataset."
+    Write-Verbose "Importing IP lookup data from JSON file: $IPdatasetIn"
+    $IPLookups = Get-Content -Path $IPdatasetIn | ConvertFrom-Json
+} else {
+    Write-Verbose "Looking up $($IPArray.Count) unique IP addresses via external API..."
+    for ($i = 0; $i -lt $IPArray.Count; $i += $APImaxIP) { 
+            $high = $i + $APImaxIP - 1
+            $low = $i
+            $chunk = $IPArray[$high..$low]
+            $chunks += ,$chunk
     }
-    $requestBody += "]"
-    $IPLookups += ipLookup $requestBody
     if ($chunks.Count -gt 1) {
-        Write-Verbose "Pausing for 15 second to respect API rate limits..."
-        Start-Sleep -Seconds $APIwaitTimeSeconds
+        $howLong = ($chunks.Count - 1) * $APIwaitTimeSeconds
+        Write-Warning "Over 100 unique IP's detected. Pausing between API requests to respect rate limits."
+        Write-Warning "Estimated total wait time: $howLong seconds."
+    }
+    foreach ($x in $chunks) {
+        $requestBody = '[{"query":"0.0.0.0", "lang":"en"}'
+        foreach ($y in $x) {
+            $requestBody += ",`"$($y)`""
+        }
+        $requestBody += "]"
+        $IPLookups += ipLookup $requestBody
+        if ($chunks.Count -gt 1) {
+            Write-Verbose "Pausing for 15 second to respect API rate limits..."
+            Start-Sleep -Seconds $APIwaitTimeSeconds
+        }
     }
 }
+
+if ($PSBoundParameters.ContainsKey("IPdatasetOut")) {
+    Write-Verbose "Exporting IP lookup data to JSON file: $IPdatasetOut"
+    $IPLookups | ConvertTo-Json | Out-File -FilePath $IPdatasetOut
+} 
 
 foreach ($i in $reportData) {
     $auditData = ConvertFrom-Json $i.AuditData
@@ -226,7 +259,5 @@ foreach ($i in $reportData) {
     if ($PSBoundParameters.ContainsKey("IPAddressSearch")) {
         if ($clientIPinfo.IP -notlike "*$IPAddressSearch*") { $showThisEntry = $false ; continue }
     }
-    if ($showThisEntry -eq $true) {
-        outputEntry $resultData
-    } 
+    if ($showThisEntry -eq $true) { outputEntry $resultData } 
 }
