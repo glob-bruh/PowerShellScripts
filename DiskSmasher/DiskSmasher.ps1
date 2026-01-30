@@ -1,14 +1,58 @@
-######################
-# DISKSMASHER
-# --------------------
-# Fully automatic disk search designed to point out reasons 
-# behind large disk usage. 
-# --------------------
-# Created by GlobBruh
-######################
+<#
+.SYNOPSIS
+    --------------------------------------
+    | DISK SMASHER - Disk Usage Analyzer |
+    --------------------------------------
+    Tool By: 
+        GlobBruh @ tech.beyondgone.xyz
+    A script to gather disk usage information and identify large files/folders and potential cleanup targets.
+    This script used to be a proprietary internal tool, but has been ethically re-written with extra features and released to the public.
+
+.DESCRIPTION
+    This PowerShell script collects and displays various disk usage statistics, including general system information, largest files in specified directories, and sizes of known problematic folders.
+    It is designed to help users identify areas where disk space can be reclaimed.
+    --------
+    LICENSE:
+    --------
+    The license for this script can be found at the following URL:
+    https://github.com/glob-bruh/PowerShellScripts/blob/main/LICENSE
+
+.PARAMETER topLargestFileCount
+    Specifies the number of largest files to list in scanned directories.
+
+.PARAMETER oneShotScanPath
+    (Optional) Specifies a custom path to perform a one-time scan for large files.
+
+.PARAMETER force
+    Bypass system RAM check to allow execution on systems with less than 8 GB of RAM.
+    This must be used with caution as it may lead to memory exhaustion.
+
+.INPUTS
+    None. This script does not take pipeline input.
+
+.OUTPUTS
+    Various disk usage statistics and information printed to the console.
+
+.EXAMPLE
+    .\DiskSmasher.ps1 -topLargestFileCount 10
+    Runs the script to list the top 10 largest files in specified directories.
+
+.EXAMPLE
+    .\DiskSmasher.ps1 -topLargestFileCount 5 -oneShotScanPath "C:\CustomFolder"
+    Runs the script to list the top 5 largest files in the specified custom folder.
+
+.LINK
+    Homepage: https://tech.beyondgone.xyz
+#>
 
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory=$true)]
+        [int]$topLargestFileCount = 15,
+    [Parameter(Mandatory=$false)]
+        [string]$oneShotScanPath,
+        [switch]$force
+)
 
 function numRound ($inVar) {
     return [math]::Round($inVar, 2)
@@ -30,6 +74,8 @@ function getBasicInformation () {
     $percFree = numRound (($freeSpace / $totalSpace) * 100)
     Write-Output "-> Disk Usage:"
     Write-Output "--> Total (gb): $totalSpace. || Used/Free (gb): $usedSpace/$freeSpace. || Used/Free (%): $percUsed/$percFree."
+    Write-Output "-> Memory Information:"
+    write-Output "--> Total Physical Memory (gb): $(numRound($totalRam))."
 }
 
 function getSizeOfFolderContents ($path) {
@@ -46,9 +92,45 @@ function getSizeOfFolderContents ($path) {
     Write-Output "--> Total size of accessible files: $out gb."
 }
 
+function getFileList($startPath) {
+    Write-Verbose "--- Get File List for Path $startPath ---"
+    Write-Verbose "Acquiring a list of all files recursively inside $startPath..."
+    $returnVar = @()
+    $filesInDir = Get-ChildItem -Path $startPath -Recurse -File -Force -ErrorAction SilentlyContinue
+    foreach ($File in $filesInDir) {
+        $offlineCheck = $File.Attributes -band [System.IO.FileAttributes]::Offline
+        $sparseCheck  = $File.Attributes -band [System.IO.FileAttributes]::SparseFile
+        if (-not $offlineCheck -and -not $sparseCheck) {
+            $returnVar += $File
+        }
+    }
+    Write-Output "Total files found: $($filesInDir.Count). Filter out cloud-only files to calculate actual disk usage..."
+    return $returnVar
+}
+
+$checkDeceivingFiles = {
+    $directoryCheck = $_.PSIsContainer
+    $offlineCheck = $_.Attributes -band [System.IO.FileAttributes]::Offline
+    $sparseCheck  = $_.Attributes -band [System.IO.FileAttributes]::SparseFile
+    $reparseCheck = $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+    $systemFileCheck  = $_.Attributes -band [System.IO.FileAttributes]::System
+    if ($directoryCheck -and $reparseCheck -and $systemFileCheck) { return $false }
+    if (-not $directoryCheck) {
+        if ($offlineCheck -or $sparseCheck) {
+            return $false
+        }
+        return $true
+    }
+    return $true # If this is reached, it's a directory that is not a reparse point, so include it.
+}
+
 function listLargeFilesInFolders ($path, $fileCount) {
     Write-Output "-> Largest files in $path (top $fileCount):"
-    $x = (Get-ChildItem -Path $path -Recurse -File -Force -ErrorAction SilentlyContinue | Sort-Object Length | Select-Object -Last $fileCount)
+    $x = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue | 
+        Where-Object -FilterScript $checkDeceivingFiles | 
+        Where-Object {-not $_.PSIsContainer} | 
+        Sort-Object Length -Descending | 
+        Select-Object -First $fileCount
     foreach ($i in $x) {
         $size = numRound ($i.Length / 1gb)
         Write-Output "--> $size gb: $($i.FullName)"
@@ -56,7 +138,7 @@ function listLargeFilesInFolders ($path, $fileCount) {
 }
 
 function getVolumeRootStats () {
-    listLargeFilesInFolders "C:\" 12
+    listLargeFilesInFolders "C:\" $topLargestFileCount
 }
 
 function getUserFolderStats () {
@@ -68,7 +150,7 @@ function getUserFolderStats () {
             Write-Output "--> $userFolder`: $($i.LastAccessTime)"
         }
     }
-    listLargeFilesInFolders "C:\Users\" 12
+    listLargeFilesInFolders "C:\Users\" $topLargestFileCount
 }
 
 function getSizeOfAllSignedFilesInDir($path, $subject) {
@@ -99,7 +181,13 @@ function newSection ($sectionTxt) {
 Write-Output "=============================="
 Write-Output "        DISK SMASHER"
 Write-Output "GlobBruh @ tech.beyondgone.xyz"
-newSection "BASIC INFORMATION"
+Write-Output "=============================="
+$totalRam = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1gb
+if ($totalRam -lt 8 -and $PSBoundParameters["force"] -ne $true) {
+    Write-Warning "SYSTEM HAS LESS THAN 8 GB OF RAM! Aborting to prevent memory exhaustion."
+    exit
+}
+Write-Output "BASIC INFORMATION:"
 getBasicInformation
 newSection "STATS - ROOT OF VOLUME"
 getVolumeRootStats

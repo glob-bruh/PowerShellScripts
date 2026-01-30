@@ -7,6 +7,6 @@ Features include:
 
 ## How to use: 
 1) Download `AuditDeepscan.ps1` file. 
-2) Run `Get-Help ./AuditDeepscan.ps1`. 
+2) Run `Get-Help ./AuditDeepscan.ps1 -Detailed`. 
 
 MORE INFORMATION ABOUT AUDIT LOGS CAN BE FOUND [HERE](https://learn.microsoft.com/en-us/purview/audit-search).

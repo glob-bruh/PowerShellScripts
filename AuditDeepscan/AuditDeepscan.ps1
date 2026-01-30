@@ -1,8 +1,8 @@
 <#
     .SYNOPSIS
-    ----------------
-    AUDIT DEEP SCAN:
-    ----------------
+    --------------------
+    | AUDIT DEEP SCAN: |
+    --------------------
     *** CREATED BY: GlobBruh (https://tech.beyondgone.xyz) ***
     Scans audit log entries and enriches them with information from external API and conversions.
 
