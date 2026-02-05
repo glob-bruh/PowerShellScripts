@@ -94,6 +94,10 @@ Write-Output "***** BrowserNeedle - Web Browser Analysis Tool *****"
 Write-Output "***  Developed by GlobBruh @ tech.beyondgone.xyz  ***"
 Write-Output "*****************************************************"
 Write-Output "USER TO ANALYZE: $Username"
+if (-not (Test-Path C:\Users\$Username)) {
+    Write-Warning "The specified user '$Username' does not exist on this system."
+    exit
+}
 switch ($Browser.ToLower()) {
     'edge' {
         Write-Output "BROWSER: Microsoft Edge", "=============================="
@@ -107,5 +111,5 @@ switch ($Browser.ToLower()) {
         Write-Output "BROWSER: Google Chrome", "=============================="
         Write-Output "Chrome scanning not yet implemented."
     }
-    default { Write-Warning "Invalid mode specified." }
+    default { Write-Warning "Invalid browser specified." }
 }
