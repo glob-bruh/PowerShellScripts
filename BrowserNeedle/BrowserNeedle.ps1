@@ -27,7 +27,7 @@ Analyzes the Microsoft Edge browser for the specified user "targetuser".
 
 function edgeHistory {
     $urlList = @()
-    $Regex = '(http(|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?'
+    $Regex = '(http(|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?' # Avoiding the use of external modules or portable versions of SQLite. 
     $historyFile = Get-Content -Path "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\History"
     Write-Output "Browser History for $Username - Edge:"
     foreach ($line in $historyFile) {
@@ -35,7 +35,7 @@ function edgeHistory {
             $urlList += $matches[0]
         }
     }
-    foreach ($url in $urlList | Sort-Object -Unique) {
+    foreach ($url in ($urlList | Sort-Object -Unique) ) {
         Write-Output "--> $url"
     }
 }
@@ -83,21 +83,32 @@ function edgePreferences {
     }
 }
 
+function edgeSitePermissions {
+    $edgePrefs = "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\Preferences"
+    if (Test-Path $edgePrefs) {
+        $preferences = Get-Content -path $edgePrefs | ConvertFrom-Json
+        Write-Output $preferences
+    }
+}
+
 function scanEdge {
+    Write-Output "EDGE HISTORY:"
     edgeHistory
     write-Output "EDGE EXTENSIONS:"
     edgePreferences
+    #Write-Output "EDGE SITE-BASED PERMISSIONS:"
+    #edgeSitePermissions
 }
 
 Write-Output "*****************************************************"
 Write-Output "***** BrowserNeedle - Web Browser Analysis Tool *****"
 Write-Output "***  Developed by GlobBruh @ tech.beyondgone.xyz  ***"
 Write-Output "*****************************************************"
-Write-Output "USER TO ANALYZE: $Username"
 if (-not (Test-Path C:\Users\$Username)) {
     Write-Warning "The specified user '$Username' does not exist on this system."
     exit
 }
+Write-Output "USER TO ANALYZE: $Username"
 switch ($Browser.ToLower()) {
     'edge' {
         Write-Output "BROWSER: Microsoft Edge", "=============================="
