@@ -11,11 +11,12 @@
 .DESCRIPTION
     This PowerShell script collects and displays various disk usage statistics, including general system information, largest files in specified directories, and sizes of known problematic folders.
     It is designed to help users identify areas where disk space can be reclaimed.
+
     --------
     LICENSE:
     --------
-    The license for this script can be found at the following URL:
-    https://github.com/glob-bruh/PowerShellScripts/blob/main/LICENSE
+    This script is licensed under the BSD-3-Clause License. You are free to use, modify, and distribute this script as long as you comply with the terms of the license.
+    For full license details, please refer to the included LICENSE file.
 
 .PARAMETER topLargestFileCount
     Specifies the number of largest files to list in scanned directories.

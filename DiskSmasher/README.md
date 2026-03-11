@@ -8,3 +8,6 @@ This script is an open-source version of a proprietary disk scanning script I bu
 ## How to use the script:
 1) Run PowerShell as an Administrator.
 2) Run `Get-Help ./DiskSmasher -Detailed`.
+
+## License
+Licensed under [The 3-Clause BSD License](https://opensource.org/license/bsd-3-clause).

@@ -3,7 +3,9 @@
     --------------------
     | AUDIT DEEP SCAN: |
     --------------------
-    *** CREATED BY: GlobBruh (https://tech.beyondgone.xyz) ***
+    Tool By: 
+        GlobBruh @ tech.beyondgone.xyz
+
     Scans audit log entries and enriches them with information from external API and conversions.
 
     .DESCRIPTION
@@ -11,13 +13,24 @@
     It enriches the audit log entries with this information and provides options to filter based on multiple criteria such as IP type, UserID, and Operation type.
     The script respects API rate limits by batching requests and includes verbose logging for transparency.
 
+    --------
+    LICENSE:
+    --------
+    This script is licensed under the BSD-3-Clause License. You are free to use, modify, and distribute this script as long as you comply with the terms of the license.
+    For full license details, please refer to the included LICENSE file.
+
+    -----------------
     DEFAULT BEHAVIOR:
+    -----------------
     If no filters are applied, the script will output all audit log entries with enriched information.
 
     .PARAMETER file2Scan
     The path to the CSV Purview audit export containing the audit log entries to be scanned.
     Accepts a string value representing the file path.
     This parameter is required.
+
+    .PARAMETER gui
+    N/a
 
     .PARAMETER IPAddressSearch
     Optional parameter to filter audit log entries by IP Address.
@@ -45,6 +58,10 @@
     .PARAMETER OperationSearch
     Optional parameter to filter audit log entries by Operation type (such as Set-Mailbox or AccessedAggregates).
     Uses wildcard matching to find entries that contain the specified string.
+
+    .PARAMETER locationSearch
+    Optional parameter to filter audit log entries by location information (city, region, country).
+    Uses wildcard matching to find entries that contain the specified string in the location data.
 
     .INPUTS
     None. This script does not accept input from the pipeline.
@@ -91,10 +108,12 @@ param(
     [Parameter(Mandatory=$true)]
         [string]$file2Scan,
     [Parameter(Mandatory=$false)]
+        [bool]$gui = $false,
         [string]$filterIPType, 
         [string]$UserIDSearch, 
         [string]$OperationSearch,
         [string]$IPAddressSearch,
+        [string]$locationSearch,
         [string]$IPdatasetOut,
         [string]$IPdatasetIn
 )
@@ -106,14 +125,6 @@ $apiURL = "http://ip-api.com/batch?fields=17035263"
 $APIwaitTimeSeconds = 15
 $APImaxIP = 97
 # ----------------
-
-function convertToBoolean($inStr) {
-    if ($inStr -like "true") {
-        return $true
-    } else {
-        return $false
-    }
-}
 
 function ipAddressParse($inStr) {
     if ($inStr.contains("[") -and $inStr.contains("]")) {
@@ -155,10 +166,10 @@ function outputEntry($resultData) {
     }
 }
 
-Write-Output "========================"
-Write-Output "AUDIT DEEP SCAN"
-Write-Output "GlobBruh - tech.beyondgone.xyz"
-Write-Output "========================"
+Write-Output "===================================="
+Write-Output "=-        AUDIT DEEP SCAN         -="
+Write-Output "=- GlobBruh @ tech.beyondgone.xyz -="
+Write-Output "===================================="
 
 $IPArray = @()
 $reportData = Import-Csv -LiteralPath $file2Scan | Sort-Object -Property CreationDate
@@ -229,13 +240,14 @@ foreach ($i in $reportData) {
                 "ISP"       = $x.isp
                 "Org"       = $x.org
                 "AS"        = $x.as
-                "IsMobile"  = convertToBoolean $x.mobile
-                "IsProxy"   = convertToBoolean $x.proxy
-                "IsHosting" = convertToBoolean $x.hosting
+                "IsMobile"  = $x.mobile
+                "IsProxy"   = $x.proxy
+                "IsHosting" = $x.hosting
             }
         }
     }
     $time = ([datetime]$auditData.CreationTime).ToString("MMMM dd, yyyy hh:mm:ss tt")
+    $locationString = "$($clientIPinfo.City), $($clientIPinfo.Region), $($clientIPinfo.Country)"
     $resultData = [PSCustomObject]@{
         "AuditData"    = $auditData
         "Time"         = $time
@@ -258,6 +270,9 @@ foreach ($i in $reportData) {
     }
     if ($PSBoundParameters.ContainsKey("IPAddressSearch")) {
         if ($clientIPinfo.IP -notlike "*$IPAddressSearch*") { $showThisEntry = $false ; continue }
+    }
+    if ($PSBoundParameters.ContainsKey("locationSearch")) {
+        if ($locationString -notlike "*$locationSearch*") { $showThisEntry = $false ; continue }
     }
     if ($showThisEntry -eq $true) { outputEntry $resultData } 
 }

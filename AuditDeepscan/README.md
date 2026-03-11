@@ -10,3 +10,6 @@ Features include:
 2) Run `Get-Help ./AuditDeepscan.ps1 -Detailed`. 
 
 MORE INFORMATION ABOUT AUDIT LOGS CAN BE FOUND [HERE](https://learn.microsoft.com/en-us/purview/audit-search).
+
+## License
+Licensed under [The 3-Clause BSD License](https://opensource.org/license/bsd-3-clause).
