@@ -4,17 +4,15 @@
     | DISK SMASHER - Disk Usage Analyzer |
     --------------------------------------
     Tool By: 
-        GlobBruh @ tech.beyondgone.xyz
+        GlobBruh @ https://tech.beyondgone.xyz
     A script to gather disk usage information and identify large files/folders and potential cleanup targets.
-    This script used to be a proprietary internal tool, but has been ethically re-written with extra features and released to the public.
+    This script used to be a proprietary internal tool, but has been fully re-written with extra features and released to the public. It does not contain any proprietary code from the original internal tool. 
 
 .DESCRIPTION
     This PowerShell script collects and displays various disk usage statistics, including general system information, largest files in specified directories, and sizes of known problematic folders.
     It is designed to help users identify areas where disk space can be reclaimed.
 
-    --------
     LICENSE:
-    --------
     This script is licensed under the BSD-3-Clause License. You are free to use, modify, and distribute this script as long as you comply with the terms of the license.
     For full license details, please refer to the included LICENSE file.
 
@@ -23,6 +21,7 @@
 
 .PARAMETER oneShotScanPath
     (Optional) Specifies a custom path to perform a one-time scan for large files.
+    Will take precedence over the default scanning behavior if provided.
 
 .PARAMETER force
     Bypass system RAM check to allow execution on systems with less than 8 GB of RAM.
@@ -36,22 +35,20 @@
 
 .EXAMPLE
     .\DiskSmasher.ps1 -topLargestFileCount 10
-    Runs the script to list the top 10 largest files in specified directories.
+    Runs the script to list the top 10 largest files in C:\ and C:\Users\, along with other disk usage statistics and potential cleanup targets.
 
 .EXAMPLE
     .\DiskSmasher.ps1 -topLargestFileCount 5 -oneShotScanPath "C:\CustomFolder"
-    Runs the script to list the top 5 largest files in the specified custom folder.
-
-.LINK
-    Homepage: https://tech.beyondgone.xyz
+    Runs the script to list the top 5 largest files in C:\CustomFolder.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-        [int]$topLargestFileCount = 15,
+        [int]$topLargestFileCount,
     [Parameter(Mandatory=$false)]
         [string]$oneShotScanPath,
+        [string]$oneShotScanFile,
         [switch]$force
 )
 
@@ -80,17 +77,24 @@ function getBasicInformation () {
 }
 
 function getSizeOfFolderContents ($path) {
-    Write-Output "-> Retrieve total size of $path`:"
     $i = 0
     if ((Test-Path -Path $path) -eq $true) {
         foreach ($x in (Get-ChildItem -Path $path -Recurse -File -Force -ErrorAction SilentlyContinue)) {
             $i += $x.Length
         }
-        $out = numRound ($i / 1gb)
+        return (numRound ($i / 1gb))
     } else {
-        $out = "N/a"
+        return "N/a"
     }
-    Write-Output "--> Total size of accessible files: $out gb."
+}
+
+function getSizeOfEachFolderInPath ($path) {
+    Write-Output "-> Retrieve total size of directories in $path`:"
+    $folders2scan = Get-ChildItem -Path $oneShotScanPath -Directory -Force -ErrorAction SilentlyContinue
+    foreach ($folder in $folders2scan) {
+        $folderSizeOut = getSizeOfFolderContents $folder.FullName
+        Write-Output "--> $folderSizeOut gb: $($folder.FullName)"
+    }
 }
 
 function getFileList($startPath) {
@@ -169,23 +173,41 @@ function getSizeOfAllSignedFilesInDir($path, $subject) {
 }
 
 function checkNoteableLargeFolders () {
-    getSizeOfFolderContents "C:\Windows\CSC\"
-    getSizeOfFolderContents "C:\Windows\SoftwareDistribution\Download\"
+    Write-Output "-> Check CSC cache folders."
+    $folderSizeOut = getSizeOfFolderContents "C:\Windows\CSC\"
+    Write-Output "--> Total size of CSC cache: $folderSizeOut gb."
+    Write-Output "-> Check Windows Update Download folder."
+    $folderSizeOut = getSizeOfFolderContents "C:\Windows\SoftwareDistribution\Download\"
+    Write-Output "--> Total size of Windows Update Download folder: $folderSizeOut gb."
     $sigSubject = "CN=Adobe Inc., OU=Acrobat DC, O=Adobe Inc., L=San Jose, S=ca, C=US, SERIALNUMBER=2748129, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.2=Delaware, OID.1.3.6.1.4.1.311.60.2.1.3=US"
     getSizeOfAllSignedFilesInDir "C:\Windows\Installer\" $sigSubject
 }
 
 function newSection ($sectionTxt) {
-    Write-Output "==============================", ($sectionTxt + ":")
+    Write-Output "======================================", ($sectionTxt + ":")
 }
 
-Write-Output "=============================="
-Write-Output "        DISK SMASHER"
-Write-Output "GlobBruh @ tech.beyondgone.xyz"
-Write-Output "=============================="
+Write-Output "======================================"
+Write-Output "DISK SMASHER"
+Write-Output "GlobBruh @ https://tech.beyondgone.xyz"
+Write-Output "======================================"
 $totalRam = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1gb
 if ($totalRam -lt 8 -and $PSBoundParameters["force"] -ne $true) {
     Write-Warning "SYSTEM HAS LESS THAN 8 GB OF RAM! Aborting to prevent memory exhaustion."
+    exit
+}
+if ($PSBoundParameters.ContainsKey("oneShotScanFile") -and $PSBoundParameters.ContainsKey("oneShotScanPath")) {
+    Write-Warning "Both oneShotScanFile and oneShotScanPath parameters were provided. Please provide only one of these parameters to avoid conflicts."
+    exit
+}
+if ($PSBoundParameters.ContainsKey("oneShotScanFile")) {
+    Write-Output "ONE-SHOT FILE MODE ($oneShotScanFile):"
+    listLargeFilesInFolders $oneShotScanFile $topLargestFileCount
+    exit
+}
+if ($PSBoundParameters.ContainsKey("oneShotScanPath")) {
+    Write-Output "ONE-SHOT PATH MODE ($oneShotScanPath):"
+    getSizeOfEachFolderInPath $oneShotScanPath
     exit
 }
 Write-Output "BASIC INFORMATION:"
