@@ -6,22 +6,31 @@
     Tool By: 
         GlobBruh @ https://tech.beyondgone.xyz
     A script to gather disk usage information and identify large files/folders and potential cleanup targets.
-    This script used to be a proprietary internal tool, but has been fully re-written with extra features and released to the public. It does not contain any proprietary code from the original internal tool. 
+    This script used to be a proprietary internal tool, but has been fully re-written with extra features 
+    and released to the public. It does not contain any proprietary code from the original internal tool. 
 
 .DESCRIPTION
-    This PowerShell script collects and displays various disk usage statistics, including general system information, largest files in specified directories, and sizes of known problematic folders.
+    This PowerShell script collects and displays various disk usage statistics, including general system 
+    information, largest files in specified directories, and sizes of known problematic folders.
     It is designed to help users identify areas where disk space can be reclaimed.
 
     LICENSE:
-    This script is licensed under the BSD-3-Clause License. You are free to use, modify, and distribute this script as long as you comply with the terms of the license.
+    This script is licensed under the BSD-3-Clause License. You are free to use, modify, and distribute 
+    this script as long as you comply with the terms of the license.
     For full license details, please refer to the included LICENSE file.
 
 .PARAMETER topLargestFileCount
     Specifies the number of largest files to list in scanned directories.
 
 .PARAMETER oneShotScanPath
-    (Optional) Specifies a custom path to perform a one-time scan for large files.
-    Will take precedence over the default scanning behavior if provided.
+    *** OPTIONAL *** 
+    If provided, the script will perform a one-time scan of the specified directory path and list the 
+    sizes of its immediate subdirectories, instead of performing the default scans.
+
+.PARAMETER oneShotScanFile
+    *** OPTIONAL *** 
+    If provided, the script will perform a one-time scan of the specified file path and list the 
+    largest files within that path, instead of performing the default scans.
 
 .PARAMETER force
     Bypass system RAM check to allow execution on systems with less than 8 GB of RAM.
@@ -38,8 +47,12 @@
     Runs the script to list the top 10 largest files in C:\ and C:\Users\, along with other disk usage statistics and potential cleanup targets.
 
 .EXAMPLE
-    .\DiskSmasher.ps1 -topLargestFileCount 5 -oneShotScanPath "C:\CustomFolder"
-    Runs the script to list the top 5 largest files in C:\CustomFolder.
+    .\DiskSmasher.ps1 -topLargestFileCount 5 -oneShotScanPath "C:\CustomFolder\"
+    Runs the script to list the sizes of immediate subdirectories in C:\CustomFolder\. 
+
+.EXAMPLE
+    .\DiskSmasher.ps1 -topLargestFileCount 7 -oneShotScanFile "C:\CustomFolder\" -Force
+    Runs the script to list the top 7 largest files in C:\CustomFolder\, bypassing the RAM check.
 #>
 
 [CmdletBinding()]
