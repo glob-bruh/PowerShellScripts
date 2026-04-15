@@ -3,7 +3,7 @@
 ////////////////////////////////////////////////////////////////////////////////////
 
 ****************** BrowserNeedle - Web Browser Analysis Tool ***********************
-                         GlobBruh @ tech.beyondgone.xyz
+                    GlobBruh @ https://tech.beyondgone.xyz
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -12,35 +12,47 @@ BrowserNeedle is a PowerShell script designed to analyze web browsers on a Windo
 
 .PARAMETER Browser
 Specifies the browser to analyze. Supported values are "Edge", "Chrome", and "Firefox".
+Specifying "detect" will attempt to automatically detect installed browsers and analyze them.
+
+.PARAMETER Username
+Specifies the username of the profile to analyze. 
+
+.PARAMETER ProfileName
+Specifies the profile to analyze (optional). If not provided, all profiles will be analyzed and displayed.
 
 .EXAMPLE
 .\BrowserNeedle.ps1 -Browser Edge -Username targetuser
 Analyzes the Microsoft Edge browser for the specified user "targetuser".
-
 #>
 
 [CmdletBinding()]
     Param(
         [string]$Browser,
-        [string]$Username
+        [string]$Username,
+        [string]$ProfileName
     )
 
-function edgeHistory {
+function sqlBrowserHistoryExtraction ($dbPath) {
     $urlList = @()
     $Regex = '(http(|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?' # Avoiding the use of external modules or portable versions of SQLite. 
-    $historyFile = Get-Content -Path "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\History"
-    Write-Output "Browser History for $Username - Edge:"
-    foreach ($line in $historyFile) {
+    foreach ($line in Get-Content -Path $dbPath) {
         if ($line -match $Regex) {
             $urlList += $matches[0]
         }
     }
-    foreach ($url in ($urlList | Sort-Object -Unique) ) {
-        Write-Output "--> $url"
+    foreach ($x in ($urlList | Sort-Object -Unique) ) {
+        Write-Output "--> $x"
     }
 }
 
-function edgePreferences {
+function edge_History {
+    # keeping function for profile implementation. 
+    foreach ($x in sqlBrowserHistoryExtraction "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\History") {
+        Write-Output "--> $x"
+    }
+}
+
+function edge_Preferences {
     $prefPath = "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\Preferences"
     if (Test-Path $prefPath) {
         $preferences = Get-Content -Path $prefPath | ConvertFrom-Json
@@ -61,11 +73,11 @@ function edgePreferences {
                     $manVersion = $manifest.version
                     $manDesc = $manifest.description
                     $manPermissions = $manifest.permissions
-                    Write-Output "--> Extension: $manName."
-                    Write-Output "-----> ID: $extID."
-                    Write-Output "-----> Author: $manAuthor."
-                    write-Output "-----> Version: $manVersion."
-                    write-Output "-----> Description: $manDesc."
+                    Write-Output "--> Extension: $manName"
+                    Write-Output "-----> ID: $extID"
+                    Write-Output "-----> Author: $manAuthor"
+                    write-Output "-----> Version: $manVersion"
+                    write-Output "-----> Description: $manDesc"
                     Write-Output "-----> Permissions:"
                     if ($manPermissions -ne $null) {
                         foreach ($perm in $manPermissions) {
@@ -83,7 +95,7 @@ function edgePreferences {
     }
 }
 
-function edgeSitePermissions {
+function edge_SitePermissions {
     $edgePrefs = "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\Preferences"
     if (Test-Path $edgePrefs) {
         $preferences = Get-Content -path $edgePrefs | ConvertFrom-Json
@@ -93,17 +105,37 @@ function edgeSitePermissions {
 
 function scanEdge {
     Write-Output "EDGE HISTORY:"
-    edgeHistory
+    sqlBrowserHistoryExtraction "C:\Users\$Username\AppData\Local\Microsoft\Edge\User Data\Default\History"
     write-Output "EDGE EXTENSIONS:"
-    edgePreferences
+    edge_Preferences
     #Write-Output "EDGE SITE-BASED PERMISSIONS:"
-    #edgeSitePermissions
+    #edge_SitePermissions
 }
 
-Write-Output "*****************************************************"
-Write-Output "***** BrowserNeedle - Web Browser Analysis Tool *****"
-Write-Output "***  Developed by GlobBruh @ tech.beyondgone.xyz  ***"
-Write-Output "*****************************************************"
+function firefox_History ($profileToScan) {
+    Write-Output "FIREFOX HISTORY FOR PROFILE: $profileToScan"
+    sqlBrowserHistoryExtraction "C:\Users\$Username\AppData\Roaming\Mozilla\Firefox\Profiles\$profileToScan\places.sqlite"
+}
+
+function scanFirefox {
+    $firefoxPath = "C:\Users\$Username\AppData\Roaming\Mozilla\Firefox\Profiles"
+    if ($ProfileName -eq "detect") {
+        foreach ($profile in Get-ChildItem -Path $firefoxPath) {
+            firefox_History $profile.Name
+        }
+    } else {
+        Write-Warning "Please specify a valid profile name or use 'detect' to automatically scan all profiles."
+    }
+}
+
+Write-Output "====================================================="
+Write-Output "BROWSERNEEDLE"
+Write-Output "GlobBruh @ https://tech.beyondgone.xyz"
+Write-Output "====================================================="
+if (-not $Username) {
+    Write-Warning "No username specified. Please run Get-Help for more information."
+    exit
+}
 if (-not (Test-Path C:\Users\$Username)) {
     Write-Warning "The specified user '$Username' does not exist on this system."
     exit
@@ -116,7 +148,7 @@ switch ($Browser.ToLower()) {
     }
     'firefox' {
         Write-Output "BROWSER: Mozilla Firefox", "=============================="
-        Write-Output "Firefox scanning not yet implemented."
+        scanFirefox
     }
     'chrome' {
         Write-Output "BROWSER: Google Chrome", "=============================="

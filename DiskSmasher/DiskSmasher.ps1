@@ -19,20 +19,29 @@
     this script as long as you comply with the terms of the license.
     For full license details, please refer to the included LICENSE file.
 
-.PARAMETER topLargestFileCount
+.PARAMETER FileCount
     Specifies the number of largest files to list in scanned directories.
 
-.PARAMETER oneShotScanPath
-    *** OPTIONAL *** 
-    If provided, the script will perform a one-time scan of the specified directory path and list the 
-    sizes of its immediate subdirectories, instead of performing the default scans.
+.PARAMETER ScanType
+    Specifies the type of scan to perform. 
+    Default is "full". This parameter determines the behavior of the script in terms of what it scans and reports on.
+    * Full: Performs a comprehensive scan of the entire system.
+    * Oneshot: Performs a one-time scan of a specified directory or file.
 
-.PARAMETER oneShotScanFile
-    *** OPTIONAL *** 
-    If provided, the script will perform a one-time scan of the specified file path and list the 
-    largest files within that path, instead of performing the default scans.
+.PARAMETER OneshotScanType
+    *** For Oneshot Scan Type ***
+    Specifies the type of one-time scan to perform when ScanType is set to "Oneshot".
+    * File: If provided, the script will perform a one-time scan of the specified file path and list the top largest 
+      files in that directory, instead of performing the default scans.
+    * Path: If provided, the script will perform a one-time scan of the specified directory path and list the sizes 
+      of its immediate subdirectories, instead of performing the default scans.
 
-.PARAMETER force
+.PARAMETER OneshotScanPath
+    *** For Oneshot Scan Type ***
+    Specifies the file or directory path to scan when ScanType is set to "Oneshot". The behavior of the scan will
+    depend on the value of OneshotScanType.
+
+.PARAMETER Force
     Bypass system RAM check to allow execution on systems with less than 8 GB of RAM.
     This must be used with caution as it may lead to memory exhaustion.
 
@@ -43,26 +52,28 @@
     Various disk usage statistics and information printed to the console.
 
 .EXAMPLE
-    .\DiskSmasher.ps1 -topLargestFileCount 10
-    Runs the script to list the top 10 largest files in C:\ and C:\Users\, along with other disk usage statistics and potential cleanup targets.
+    .\DiskSmasher.ps1 -FileCount 10 -ScanType "full"
+    Runs the script to list the top 10 largest files in C:\ and C:\Users\, along with other disk usage statistics and 
+    potential cleanup targets.
 
 .EXAMPLE
-    .\DiskSmasher.ps1 -topLargestFileCount 5 -oneShotScanPath "C:\CustomFolder\"
+    .\DiskSmasher.ps1 -FileCount 5 -OneshotScanType "Path" -OneshotScanPath "C:\CustomFolder\"
     Runs the script to list the sizes of immediate subdirectories in C:\CustomFolder\. 
 
 .EXAMPLE
-    .\DiskSmasher.ps1 -topLargestFileCount 7 -oneShotScanFile "C:\CustomFolder\" -Force
+    .\DiskSmasher.ps1 -FileCount 7 -OneshotScanType "File" -OneshotScanPath "C:\CustomFolder\" -Force
     Runs the script to list the top 7 largest files in C:\CustomFolder\, bypassing the RAM check.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-        [int]$topLargestFileCount,
+        [int]$FileCount,
+        [string]$ScanType = "Full",
     [Parameter(Mandatory=$false)]
-        [string]$oneShotScanPath,
-        [string]$oneShotScanFile,
-        [switch]$force
+        [string]$OneshotScanType,
+        [string]$OneshotScanPath,
+        [switch]$Force
 )
 
 function numRound ($inVar) {
@@ -156,7 +167,7 @@ function listLargeFilesInFolders ($path, $fileCount) {
 }
 
 function getVolumeRootStats () {
-    listLargeFilesInFolders "C:\" $topLargestFileCount
+    listLargeFilesInFolders "C:\" $FileCount
 }
 
 function getUserFolderStats () {
@@ -168,7 +179,7 @@ function getUserFolderStats () {
             Write-Output "--> $userFolder`: $($i.LastAccessTime)"
         }
     }
-    listLargeFilesInFolders "C:\Users\" $topLargestFileCount
+    listLargeFilesInFolders "C:\Users\" $FileCount
 }
 
 function getSizeOfAllSignedFilesInDir($path, $subject) {
@@ -200,35 +211,41 @@ function newSection ($sectionTxt) {
     Write-Output "======================================", ($sectionTxt + ":")
 }
 
+function fullScan () {
+    Write-Output "BASIC INFORMATION:"
+    getBasicInformation
+    newSection "STATS - ROOT OF VOLUME"
+    getVolumeRootStats
+    newSection "STATS - USER FOLDER"
+    getUserFolderStats
+    newSection "CHECK KNOWN PROBLEMATIC LOCATIONS"
+    checkNoteableLargeFolders
+    # checkForRemediation    
+}
+
 Write-Output "======================================"
 Write-Output "DISK SMASHER"
 Write-Output "GlobBruh @ https://tech.beyondgone.xyz"
 Write-Output "======================================"
 $totalRam = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1gb
-if ($totalRam -lt 8 -and $PSBoundParameters["force"] -ne $true) {
+if ($totalRam -lt 8 -and $PSBoundParameters["Force"] -ne $true) {
     Write-Warning "SYSTEM HAS LESS THAN 8 GB OF RAM! Aborting to prevent memory exhaustion."
     exit
 }
-if ($PSBoundParameters.ContainsKey("oneShotScanFile") -and $PSBoundParameters.ContainsKey("oneShotScanPath")) {
-    Write-Warning "Both oneShotScanFile and oneShotScanPath parameters were provided. Please provide only one of these parameters to avoid conflicts."
-    exit
+if ($PSBoundParameters.ContainsKey("ScanType")) {
+    if ($ScanType -eq "Full") {
+        fullScan
+        exit
+    } elseif ($ScanType -eq "Oneshot") {
+        if ($OneshotScanType -eq "File") {
+            listLargeFilesInFolders $OneshotScanPath $FileCount
+        } elseif ($OneshotScanType -eq "Path") {
+            getSizeOfEachFolderInPath $OneshotScanPath
+        }
+    } else {
+        Write-Warning "Invalid ScanType provided. Please run Get-Help for more information."
+    }
+} else {
+    Write-Warning "Invalid ScanType provided. Please specify either 'full' or 'oneShot'."
 }
-if ($PSBoundParameters.ContainsKey("oneShotScanFile")) {
-    Write-Output "ONE-SHOT FILE MODE ($oneShotScanFile):"
-    listLargeFilesInFolders $oneShotScanFile $topLargestFileCount
-    exit
-}
-if ($PSBoundParameters.ContainsKey("oneShotScanPath")) {
-    Write-Output "ONE-SHOT PATH MODE ($oneShotScanPath):"
-    getSizeOfEachFolderInPath $oneShotScanPath
-    exit
-}
-Write-Output "BASIC INFORMATION:"
-getBasicInformation
-newSection "STATS - ROOT OF VOLUME"
-getVolumeRootStats
-newSection "STATS - USER FOLDER"
-getUserFolderStats
-newSection "CHECK KNOWN PROBLEMATIC LOCATIONS"
-checkNoteableLargeFolders
-# checkForRemediation
+exit
